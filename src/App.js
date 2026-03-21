@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import './App.css';
 
 const API = 'http://127.0.0.1:8000/api';
@@ -8,7 +8,7 @@ function StatCard({ label, value, color }) {
   return (
     <div style={{ background: '#111827', borderRadius: 12, padding: '20px 24px', border: '1px solid #1f2937' }}>
       <div style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 32, fontWeight: 600, color: color }}>{value}</div>
+      <div style={{ fontSize: 32, fontWeight: 600, color }}>{value}</div>
     </div>
   );
 }
@@ -21,6 +21,8 @@ function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [sensor, setSensor] = useState('WTMP');
   const [loading, setLoading] = useState(true);
+  const [buoyStats, setBuoyStats] = useState([]);
+  const [heatmap, setHeatmap] = useState([]);
 
   useEffect(() => { fetchAll(); }, []);
   useEffect(() => { fetchReadings(); }, [selectedBuoy, sensor]);
@@ -29,10 +31,14 @@ function App() {
     try {
       const s = await fetch(`${API}/stats`).then(r => r.json());
       const b = await fetch(`${API}/buoys`).then(r => r.json());
-      const a = await fetch(`${API}/anomalies?limit=20`).then(r => r.json());
+      const a = await fetch(`${API}/anomalies?limit=50`).then(r => r.json());
+      const bs = await fetch(`${API}/buoy_stats`).then(r => r.json());
+      const hm = await fetch(`${API}/heatmap`).then(r => r.json());
       setStats(s);
       setBuoys(b.buoys || []);
       setAnomalies(a.anomalies || []);
+      setBuoyStats(bs.buoy_stats || []);
+      setHeatmap(hm.heatmap || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   }
@@ -58,8 +64,11 @@ function App() {
     </div>
   );
 
+  const HOURS = ['12am','2am','4am','6am','8am','10am','12pm','2pm','4pm','6pm','8pm','10pm'];
+
   return (
     <div style={{ background: '#0a0f1e', minHeight: '100vh', color: '#e0e0e0', fontFamily: 'sans-serif', padding: 24 }}>
+
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ color: '#00d4ff', margin: 0, fontSize: 28 }}>Ocean Anomaly Detection</h1>
         <p style={{ color: '#888', margin: '4px 0 0' }}>Live NOAA buoy monitoring powered by Isolation Forest and MongoDB</p>
@@ -71,6 +80,44 @@ function App() {
         <StatCard label="Buoys Monitored" value={stats?.buoys_monitored} color="#2ed573" />
       </div>
 
+      {/* Anomaly rate bar chart per buoy */}
+      <div style={{ background: '#111827', borderRadius: 12, padding: 24, border: '1px solid #1f2937', marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 16, color: '#00d4ff' }}>Anomaly rate per buoy (%)</h2>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={buoyStats}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+            <XAxis dataKey="buoy_id" tick={{ fill: '#888', fontSize: 12 }} />
+            <YAxis tick={{ fill: '#888', fontSize: 12 }} />
+            <Tooltip contentStyle={{ background: '#1f2937', border: 'none', borderRadius: 8 }} />
+            <Bar dataKey="anomaly_pct" radius={[4, 4, 0, 0]}>
+              {buoyStats.map((entry, i) => (
+                <Cell key={i} fill={entry.anomaly_pct > 10 ? '#ff4757' : entry.anomaly_pct > 5 ? '#ffa502' : '#2ed573'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Anomaly heatmap by hour */}
+      <div style={{ background: '#111827', borderRadius: 12, padding: 24, border: '1px solid #1f2937', marginBottom: 24 }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 16, color: '#00d4ff' }}>Anomaly heatmap — hour of day</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
+          {heatmap.map((h, i) => (
+            <div key={i} style={{ textAlign: 'center' }}>
+              <div style={{
+                height: 48, borderRadius: 6,
+                background: `rgba(255, 71, 87, ${Math.min(h.count / 50, 1)})`,
+                border: '1px solid #1f2937',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, color: '#fff'
+              }}>{h.count}</div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>{HOURS[i]}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Time series */}
       <div style={{ background: '#111827', borderRadius: 12, padding: 24, border: '1px solid #1f2937', marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
           <div>
@@ -100,6 +147,7 @@ function App() {
         </ResponsiveContainer>
       </div>
 
+      {/* Alert feed */}
       <div style={{ background: '#111827', borderRadius: 12, padding: 24, border: '1px solid #1f2937' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 16, color: '#ff4757' }}>Recent anomaly alerts</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -127,6 +175,7 @@ function App() {
           </tbody>
         </table>
       </div>
+
     </div>
   );
 }
